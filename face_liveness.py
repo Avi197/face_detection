@@ -1,69 +1,17 @@
-import math
-from typing import Tuple, Union
-
-from detection import face_mesh_custom
-import mediapipe as mp
+import face_mesh_custom
+import face_mesh_point
 import numpy as np
 import cv2
+
+from utils import euclidean_dist
+
+right_eye = face_mesh_point.right_eye
+left_eye = face_mesh_point.left_eye
+outer_lips = face_mesh_point.outer_lips
 
 mp_face_mesh = face_mesh_custom
 face_mesh = mp_face_mesh.FaceMeshCustom(max_num_faces=1, min_detection_confidence=0.5,
                                         min_tracking_confidence=0.5)
-mp_drawing = mp.solutions.drawing_utils
-drawing_spec = mp_drawing.DrawingSpec(thickness=1, circle_radius=1)
-right_eye = {33: 0, 246: 0, 161: 0, 160: 0, 159: 0, 158: 0, 157: 0, 173: 0, 133: 0, 155: 0, 154: 0, 153: 0, 145: 0,
-             144: 0, 163: 0, 7: 0}
-
-left_eye = {362: 0, 398: 0, 384: 0, 385: 0, 386: 0, 387: 0, 388: 0, 466: 0, 263: 0, 249: 0, 390: 0, 373: 0, 374: 0,
-            380: 0, 381: 0, 382: 0}
-outer_lips = {61: 0, 185: 0, 40: 0, 39: 0, 37: 0, 0: 0, 267: 0, 269: 0, 270: 0, 409: 0, 291: 0, 375: 0, 321: 0, 405: 0,
-              314: 0, 17: 0, 84: 0, 181: 0, 91: 0, 146: 0}
-
-
-def draw_mesh(image, results):
-    if results.multi_face_landmarks:
-        for face_landmarks in results.multi_face_landmarks:
-            mp_drawing.draw_landmarks(
-                image=image,
-                landmark_list=face_landmarks,
-                connections=mp_face_mesh.FACEMESH_CONTOURS,
-                landmark_drawing_spec=drawing_spec,
-                connection_drawing_spec=drawing_spec)
-    return image
-
-
-def _normalized_to_pixel_coordinates(
-        normalized_x: float, normalized_y: float, image_width: int,
-        image_height: int) -> Union[None, Tuple[int, int]]:
-    """Converts normalized value pair to pixel coordinates."""
-
-    # Checks if the float value is between 0 and 1.
-    def is_valid_normalized_value(value: float) -> bool:
-        return (value > 0 or math.isclose(0, value)) and (value < 1 or
-                                                          math.isclose(1, value))
-
-    if not (is_valid_normalized_value(normalized_x) and
-            is_valid_normalized_value(normalized_y)):
-        # TODO: Draw coordinates even if it's outside of the image bounds.
-        return None
-    x_px = min(math.floor(normalized_x * image_width), image_width - 1)
-    y_px = min(math.floor(normalized_y * image_height), image_height - 1)
-    return x_px, y_px
-
-
-def get_coord_bbox(detection, image_rows, image_cols):
-    location = detection.location_data
-    if not location.HasField('relative_bounding_box'):
-        return
-    relative_bounding_box = location.relative_bounding_box
-    rect_start_point = _normalized_to_pixel_coordinates(
-        relative_bounding_box.xmin, relative_bounding_box.ymin, image_cols,
-        image_rows)
-    rect_end_point = _normalized_to_pixel_coordinates(
-        relative_bounding_box.xmin + relative_bounding_box.width,
-        relative_bounding_box.ymin + relative_bounding_box.height, image_cols,
-        image_rows)
-    return rect_start_point, rect_end_point
 
 
 def detect_direction(face_2d, face_3d, img_h, img_w):
@@ -147,13 +95,6 @@ def validate_blur(frontal_face, threshold=11):
     return blur_value > threshold
 
 
-def euclidean_dist(point1, point2):
-    x1, y1 = point1
-    x2, y2 = point2
-    distance = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-    return distance
-
-
 def validate_blink(eye, threshold=0.10):
     # Finding Distance Right Eye
     hR = euclidean_dist(eye[0][160], eye[0][144]) + euclidean_dist(eye[0][157], eye[0][154])
@@ -169,12 +110,6 @@ def validate_blink(eye, threshold=0.10):
     if ear < threshold:
         return True
     return False
-
-
-def bbox_padding(box):
-    h_padding = abs(box[2] - box[0]) * 10 / 100
-    w_padding = abs(box[3] - box[1]) * 10 / 100
-    return h_padding, w_padding
 
 
 def validate_face(image, results, eye_check=False):
@@ -305,7 +240,6 @@ def check_eye_blink(img, status, blink, stop_frame=100):
     else:
         box, _, eye, _, _ = validate_face(img, results, eye_check=True)
         if box is not None:
-            img = draw_mesh(img.copy(), results)
             for idx, l in enumerate(list(eye[0].values())):
                 if idx != len(eye[0]) - 1:
                     cv2.line(img, list(eye[0].values())[idx], list(eye[0].values())[idx + 1], (0, 255, 0), 2)
@@ -354,19 +288,19 @@ def webcam(cap):
         if status == 'check_fail':
             cv2.putText(img, 'Check fail, press R to restart', (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 1)
         if status == 'start':
-            #     if count < 50:
-            #         img = cv2.putText(img, 'Follow the action', (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 1)
-            #         count += 1
-            #     else:
-            #         img, status, left_count_frame = check_profile(img, status, left_count_frame, 'Left')
-            #
-            # if status == 'Left success':
-            #     img, status, front_count_frame = check_profile(img, status, front_count_frame, 'Forward')
-            # if status == 'Forward success':
-            #     img, status, right_count_frame = check_profile(img, status, right_count_frame, 'Right')
-            # if status == 'Right success':
-            #     img, status, blink = check_eye_blink(img, status, blink)
-            # if status == 'Blink success':
+            if count < 50:
+                img = cv2.putText(img, 'Follow the action', (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 1)
+                count += 1
+            else:
+                img, status, left_count_frame = check_profile(img, status, left_count_frame, 'Left')
+
+        if status == 'Left success':
+            img, status, front_count_frame = check_profile(img, status, front_count_frame, 'Forward')
+        if status == 'Forward success':
+            img, status, right_count_frame = check_profile(img, status, right_count_frame, 'Right')
+        if status == 'Right success':
+            img, status, blink = check_eye_blink(img, status, blink)
+        if status == 'Blink success':
             img, status, smile = check_smile(img, status, smile, stop_frame=60, ratio=0.44)
         if status == 'Smile detected':
             status = 'success'
@@ -375,53 +309,6 @@ def webcam(cap):
             break
     cap.release()
     cv2.destroyAllWindows()
-
-
-# def webcam_refactor(cap):
-#     front_count_frame = []
-#     left_count_frame = []
-#     right_count_frame = []
-#     _front_count_frame = []
-#     blink = 0
-#
-#     count = 0
-#     status = 'ready'
-#     while cap.isOpened():
-#         ret, img = cap.read()
-#         img = cv2.flip(img, 1)
-#         results = detect_img(img)
-#         box, direction = validate_face(img, results)
-#
-#         if cv2.waitKey(1) & 0xFF == ord('r'):
-#             front_count_frame = []
-#             left_count_frame = []
-#             right_count_frame = []
-#             status = 'start'
-#             count = 0
-#         if status == 'success':
-#             cv2.putText(img, 'You are a real person', (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 1)
-#         if status == 'ready':
-#             cv2.putText(img, f'Press R to check liveness', (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 1)
-#         if status == 'check_fail':
-#             cv2.putText(img, 'Check fail, press R to restart', (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 1)
-#         if status == 'start':
-#             if count < 50:
-#                 img = cv2.putText(img, 'Follow the action', (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 1)
-#                 count += 1
-#             else:
-#                 img, status, front_count_frame = check_profile_refactor(img, status, front_count_frame, box, direction,
-#                                                                         'Forward')
-#         if status == 'Forward success':
-#             img, status, left_count_frame = check_profile_refactor(img, status, left_count_frame, box, direction, 'Left')
-#         if status == 'Left success':
-#             img, status, right_count_frame = check_profile_refactor(img, status, right_count_frame, box, direction, 'Right')
-#         if status == 'Right success':
-#             status = 'success'
-#         cv2.imshow('Head Pose Estimation', img)
-#         if cv2.waitKey(1) & 0xFF == ord('q'):
-#             break
-#     cap.release()
-#     cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
