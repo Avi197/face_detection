@@ -8,7 +8,6 @@ mp_drawing = mp.solutions.drawing_utils
 drawing_spec = mp_drawing.DrawingSpec(thickness=1, circle_radius=1)
 
 
-
 def _normalized_to_pixel_coordinates(
         normalized_x: float, normalized_y: float, image_width: int,
         image_height: int) -> Union[None, Tuple[int, int]]:
